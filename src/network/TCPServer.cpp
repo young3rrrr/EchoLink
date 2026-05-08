@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <thread>
 #include <algorithm>
+#include "network/NetworkUtils.h"
 
 /**
  * Конструктор: Ініціалізує екземпляр TCP сервера
@@ -158,8 +159,8 @@ void TCPServer::broadcastMessage(const std::string& message, int sender_socket) 
     for (int client_fd : client_sockets_) {
         // Не відправляємо повідомлення тому, хто його надіслав
         if (client_fd != sender_socket) {
-            // Відправляємо повідомлення до клієнта
-            send(client_fd, message.c_str(), message.length(), 0);
+            // ВАЖЛИВО: Використовуємо нашу нову функцію для безпечної відправки
+            sendMessage(client_fd, message);
         }
     }
 }
@@ -175,18 +176,14 @@ void TCPServer::broadcastMessage(const std::string& message, int sender_socket) 
  * @param client_socket - дескриптор сокета для цього клієнта
  */
 void TCPServer::handleClient(int client_socket) {
-    char buffer[1024];  // Буфер для зберігання вхідних даних від клієнта
     
     // Нескінченний цикл обробки повідомлень від клієнта
     while (true) {
-        // Очищаємо буфер перед отриманням нових даних
-        memset(buffer, 0, sizeof(buffer));
-        // Отримуємо дані від клієнта
-        int bytes_received = recv(client_socket, buffer, sizeof(buffer), 0);
+        std::string received_msg; // Сюди буде записано повідомлення будь-якого розміру
         
-        // Перевіряємо, чи сталося розривання з'єднання
-        // bytes_received <= 0 означає, що клієнт відключився
-        if (bytes_received <= 0) {
+        // Отримуємо дані від клієнта за допомогою нашої нової функції
+        // Якщо receiveMessage повертає false, це означає розрив з'єднання або помилку
+        if (!receiveMessage(client_socket, received_msg)) {
             // Логуємо відключення клієнта
             std::cout << "[Info] Client " << client_socket << " disconnected.\n";
             
@@ -198,20 +195,19 @@ void TCPServer::handleClient(int client_socket) {
             // Повідомляємо інших клієнтів про розрив з'єднання
             std::string disconnect_msg = "[Server]: Someone left the chat.";
             for (int fd : client_sockets_) {
-                send(fd, disconnect_msg.c_str(), disconnect_msg.length(), 0);
+                // ВАЖЛИВО: Замінили send(...) на нашу нову функцію!
+                sendMessage(fd, disconnect_msg);
             }
-            break;
+            break; // Вихід з циклу
         }
         
-        // Перетворюємо отримані дані в рядок
-        std::string received_msg(buffer);
-        // Логуємо отримане повідомлення
-
-        if (!received_msg.find_first_not_of(" \t\n\r\f\v") == std::string::npos) {
+        // Ця перевірка залишається без змін
+        if (received_msg.find_first_not_of(" \t\n\r\f\v") == std::string::npos) {
             // Якщо повідомлення містить лише пробіли, пропускаємо його
             continue;
         }
 
+        // Логуємо отримане повідомлення
         std::cout << "[server log] received: " << received_msg << "\n";
         
         // Розповсюджуємо повідомлення всім іншим клієнтам
