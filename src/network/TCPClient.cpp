@@ -167,6 +167,14 @@ void TCPClient::run() {
         // Читаємо рядок, введений користувачем
         std::getline(std::cin, message);
         
+        message.erase(0, message.find_first_not_of(" \t\n\r\f\v")); // Видаляємо початкові пробіли
+        message.erase(message.find_last_not_of(" \t\n\r\f\v") + 1); // Видаляємо кінцеві пробіли
+
+        if (message.empty()) {
+            // Якщо користувач ввів лише пробіли, пропускаємо відправку порожнього повідомлення
+            continue;
+        }
+
         // Якщо сервер відключився і поток отримання завершився, виходимо з циклу вводу
         if (!is_running_) break; 
 

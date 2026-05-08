@@ -206,6 +206,12 @@ void TCPServer::handleClient(int client_socket) {
         // Перетворюємо отримані дані в рядок
         std::string received_msg(buffer);
         // Логуємо отримане повідомлення
+
+        if (!received_msg.find_first_not_of(" \t\n\r\f\v") == std::string::npos) {
+            // Якщо повідомлення містить лише пробіли, пропускаємо його
+            continue;
+        }
+
         std::cout << "[server log] received: " << received_msg << "\n";
         
         // Розповсюджуємо повідомлення всім іншим клієнтам
