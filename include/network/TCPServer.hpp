@@ -25,4 +25,6 @@ private:
     // інкапсуляція даних клієнтів та м'ютекса для синхронізації доступу до них
     std::vector<int> client_sockets_;
     std::mutex clients_mutex_;
+    
+    bool is_running_; // Додаємо прапорець стану сервера
 };

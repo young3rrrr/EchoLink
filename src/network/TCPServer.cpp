@@ -32,7 +32,7 @@
  * - Встановлює INADDR_ANY для прийому з'єднань з будь-якого інтерфейсу
  * - Перетворює номер порту у мережевий формат за допомогою htons()
  */
-TCPServer::TCPServer(int port) : port_(port), server_fd_(-1) {
+TCPServer::TCPServer(int port) : port_(port), server_fd_(-1), is_running_(false) { // Додали is_running_(false)
     memset(&server_address_, 0, sizeof(server_address_));
     server_address_.sin_family = AF_INET;
     server_address_.sin_addr.s_addr = INADDR_ANY;
@@ -111,34 +111,52 @@ bool TCPServer::start() {
  *           Метод використовує std::detach() для незалежного запуску обробника для кожного клієнта.
  */
 void TCPServer::run() {
-    // Нескінченний цикл для постійного прийому клієнтських з'єднань
-    while (true) {
-        sockaddr_in client_address;           // Структура для збереження адреси клієнта
+    is_running_ = true;
+
+    // Запускаємо окремий потік для читання команд адміністратора з консолі
+    std::thread([this]() {
+        std::string command;
+        while (is_running_) {
+            std::getline(std::cin, command);
+            
+            if (command == "/stop" || command == "exit") {
+                std::cout << "[Server] Shutting down...\n";
+                stop(); // Викликаємо зупинку
+                break;
+            } else if (!command.empty()) {
+                std::cout << "[Server] Unknown command. Use '/stop' or 'exit' to shutdown.\n";
+            }
+        }
+    }).detach();
+
+    // Основний цикл для постійного прийому клієнтських з'єднань
+    while (is_running_) {
+        sockaddr_in client_address;
         socklen_t client_len = sizeof(client_address);
         
-        // Приймаємо з'єднання від клієнта (блокуючий виклик)
-        // Цей виклик чекає на наступне вхідне з'єднання
+        // Приймаємо з'єднання
         int client_socket = accept(server_fd_, (struct sockaddr*)&client_address, &client_len);
-        // Перевіряємо, чи успішно прийняли з'єднання
+        
         if (client_socket == -1) {
+            // Якщо accept повернув помилку, перевіряємо, чи не зупинили ми сервер
+            if (!is_running_) {
+                break; // Виходимо з циклу, бо сервер вимикається
+            }
             std::cerr << "[Error] Failed to accept client.\n";
             continue;
         }
         
-        // Логуємо нове з'єднання з дескриптором файлу сокета
         std::cout << "[Info] New connection! Socket allocated: " << client_socket << "\n";
         
-        // Додаємо новий сокет клієнта до списку підключених клієнтів
-        // Мьютекс забезпечує потокобезпечний доступ до списку client_sockets_
         {
             std::lock_guard<std::mutex> lock(clients_mutex_);
             client_sockets_.push_back(client_socket);
         }
         
-        // Створюємо новий потік для обробки повідомлень цього клієнта
-        // std::detach() дозволяє потоку працювати незалежно від основного циклу сервера
         std::thread(&TCPServer::handleClient, this, client_socket).detach();
     }
+    
+    std::cout << "=== Server successfully stopped ===\n";
 }
 
 /**
@@ -226,11 +244,22 @@ void TCPServer::handleClient(int client_socket) {
  * Безпечний для повторного виклику - не робить нічого, якщо сокет уже закритий
  */
 void TCPServer::stop() {
-    // Перевіряємо, чи сокет ще відкритий
+    is_running_ = false; // Сигналізуємо всім циклам про зупинку
+
+    // Сповіщаємо та відключаємо всіх підключених клієнтів
+    {
+        std::lock_guard<std::mutex> lock(clients_mutex_);
+        std::string shutdown_msg = "[Server]: Server is shutting down.";
+        for (int fd : client_sockets_) {
+            sendMessage(fd, shutdown_msg); // Сповіщаємо клієнта
+            close(fd);                     // Закриваємо його сокет
+        }
+        client_sockets_.clear(); // Очищаємо список
+    }
+
+    // Перевіряємо, чи сокет сервера ще відкритий
     if (server_fd_ != -1) {
-        // Закриваємо сокет сервера
-        close(server_fd_);
-        // Позначаємо, що сокет закритий
+        close(server_fd_); // Закриття головного сокета автоматично перерве accept()
         server_fd_ = -1;
     }
 }
