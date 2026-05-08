@@ -1,0 +1,19 @@
+# Сборка
+build/
+bin/
+obj/
+
+# Временные файлы CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+Makefile
+
+# Настройки VS Code
+.vscode/
+
+# Системные файлы Linux
+.DS_Store
+*.swp
+*~
