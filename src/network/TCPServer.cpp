@@ -303,7 +303,7 @@ void TCPServer::saveMessageToDB(const std::string& username, const std::string& 
         pqxx::work txn(conn); // Транзакція для запису
         
         // Використовуємо підготовлений запит для захисту від SQL-ін'єкцій
-        txn.exec("INSERT INTO messages (username, content) VALUES ($1, $2)", pqxx::params{username, content});
+        txn.exec_params("INSERT INTO messages (username, content) VALUES ($1, $2)", username, content);
         txn.commit(); // Підтверджуємо запис
         
     } catch (const std::exception& e) {
