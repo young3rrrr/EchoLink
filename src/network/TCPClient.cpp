@@ -21,6 +21,8 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include "network/NetworkUtils.h" // Наш новий файл з функціями для динамічного буфера
+#include <fcntl.h> // Додаємо для неблокуючого сокета
+#include <sys/select.h>
 
 /**
  * Конструктор: Ініціалізує екземпляр TCP клієнта
@@ -61,12 +63,56 @@ bool TCPClient::connectToServer() {
 
     std::cout << "Connecting to EchoLink server (" << ip_ << ":" << port_ << ")...\n";
 
-    // Встановлюємо з'єднання з сервером
-    if (connect(socket_fd_, (struct sockaddr*)&server_address, sizeof(server_address)) == -1) {
-        std::cerr << "Failed to connect to server! Make sure the server is running.\n";
-        stop();
-        return false;
+    // 1. Отримуємо поточні прапорці сокета і додаємо режим O_NONBLOCK (неблокуючий)
+    int flags = fcntl(socket_fd_, F_GETFL, 0);
+    fcntl(socket_fd_, F_SETFL, flags | O_NONBLOCK);
+
+    // 2. Робимо спробу підключення (вона поверне керування миттєво)
+    int res = connect(socket_fd_, (struct sockaddr*)&server_address, sizeof(server_address));
+    
+    if (res < 0) {
+        if (errno == EINPROGRESS) {
+            // Підключення в процесі. Використовуємо select для очікування з таймаутом
+            fd_set write_set;
+            FD_ZERO(&write_set);
+            FD_SET(socket_fd_, &write_set);
+
+            struct timeval timeout;
+            timeout.tv_sec = 5;  // Максимальний час очікування (5 секунд)
+            timeout.tv_usec = 0; // Мікросекунди
+
+            // Чекаємо, поки сокет стане доступним для запису (що означає успішне підключення) або вийде час
+            res = select(socket_fd_ + 1, NULL, &write_set, NULL, &timeout);
+            
+            if (res == 0) {
+                // Таймаут! Сервер не відповів за 5 секунд
+                std::cerr << "Connection timed out! The server is unreachable.\n";
+                stop();
+                return false;
+            } else if (res > 0) {
+                // Перевіряємо, чи немає прихованих помилок на сокеті
+                int so_error;
+                socklen_t len = sizeof(so_error);
+                getsockopt(socket_fd_, SOL_SOCKET, SO_ERROR, &so_error, &len);
+                if (so_error != 0) {
+                    std::cerr << "Connection failed.\n";
+                    stop();
+                    return false;
+                }
+            } else {
+                std::cerr << "Select error during connection.\n";
+                stop();
+                return false;
+            }
+        } else {
+            std::cerr << "Failed to connect to server immediately!\n";
+            stop();
+            return false;
+        }
     }
+
+    // 3. Повертаємо сокет назад у нормальний (блокуючий) режим для подальшої роботи
+    fcntl(socket_fd_, F_SETFL, flags);
 
     std::cout << "Success! Connection with server established.\n";
 
