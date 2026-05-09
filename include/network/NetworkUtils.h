@@ -37,6 +37,9 @@ inline bool receiveMessage(int socket, std::string& outMessage) {
         return true;
     }
 
+    if (msgSize > 10 * 1024 * 1024) { // ліміт в 10 МБ для запобігання DoS атак
+        return false;
+    }
         std::vector<char> buffer(msgSize);
     size_t totalRead = 0;
 
