@@ -1,19 +1,18 @@
-# Сборка
 build/
-bin/
-obj/
-
-# Временные файлы CMake
 CMakeCache.txt
 CMakeFiles/
-CMakeScripts/
 cmake_install.cmake
 Makefile
 
-# Настройки VS Code
+.cache/
+compile_commands.json
 .vscode/
+.idea/
 
-# Системные файлы Linux
+*.o
+*.out
+echolink_client
+echolink_server
+
 .DS_Store
-*.swp
-*~
+Thumbs.db

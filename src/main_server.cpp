@@ -3,11 +3,11 @@
 #define PORT 8080
 
 int main() {
-    TCPServer server(PORT);
+  TCPServer server(PORT);
 
-    if (server.start()) {
-        server.run();
-    }
+  if (server.start()) {
+    server.run();
+  }
 
-    return 0;
+  return 0;
 }
