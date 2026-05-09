@@ -1,56 +1,48 @@
 # EchoLink
 
-EchoLink is a terminal-based client-server messaging application written in C++. It demonstrates real-time communication between multiple users over a TCP/IP network using a centralized server.
+EchoLink is a high-performance, multi-threaded terminal-based client-server messaging application written in C++. It features real-time communication between multiple users over a TCP/IP network and maintains a persistent chat history using a PostgreSQL database.
 
 ## 🚀 Features
 
-* Real-time text messaging
-* Multi-client support
-* Centralized message broadcasting
-* Terminal-based interface (CLI)
-* Thread-safe server handling multiple clients simultaneously
+*   **Real-Time Messaging:** Instant message broadcasting across all connected clients.
+*   **Persistent History:** All messages are automatically saved to a PostgreSQL database.
+*   **Smart History Loading:** New clients automatically receive the last 25 messages upon joining to provide context.
+*   **Multi-Client Support:** Handles multiple simultaneous connections using efficient C++ threading.
+*   **Graceful Shutdown:** Implements a thread-safe shutdown sequence (`exit` or `/stop`) to ensure no data loss or memory leaks.
+*   **Clean Codebase:** Pre-configured with `clang-format` for consistent styling and a robust `.gitignore`.
 
 ## 🧰 Technology Stack
 
-* Language: C++ (C++11 or higher)
-
-* Networking:
-
-  * POSIX sockets (<sys/socket.h>) for Linux/Unix
-  * Winsock2 for Windows
-  * Protocol: TCP/IPv4
+*   **Language:** C++ (C++11 or higher)
+*   **Networking:** 
+    *   POSIX Sockets (`<sys/socket.h>`) for Linux/Unix
+    *   Protocol: TCP/IPv4
+*   **Database:**
+    *   PostgreSQL
+    *   Library: `libpqxx` (C++ client for PostgreSQL)
+*   **Build System:** CMake
 
 ## 🏗 Architecture
 
 ### Server
-
-* Binds to a specified port and listens for incoming connections
-* Accepts multiple clients
-* Handles each client in a separate thread
-* Broadcasts incoming messages to all connected users
+*   Listens on a specified port and accepts incoming TCP connections.
+*   Manages a pool of client threads.
+*   Interfaces with PostgreSQL to store and retrieve messages.
+*   Broadcasts messages to all active users while excluding the sender to prevent echoes.
 
 ### Client
+*   Connects via IP and Port.
+*   Uses a dual-threaded approach: one thread for continuous message reception and one for user input.
+*   Supports custom nicknames and system commands.
 
-* Connects to the server via IP and port
-* Allows the user to set a nickname
-* Uses separate threads for:
+## ⚙️ Database Setup
 
-  * Sending messages
-  * Receiving messages
-* Displays incoming messages in real time
+To enable message persistence, create a PostgreSQL database named `echolink_db` and execute the following SQL to set up the table:
 
-## 📦 How It Works
-
-1. Start the server
-2. Run one or more client instances
-3. Each client connects to the server and enters a nickname
-4. Messages sent by any client are broadcast to all connected users
-
-## 📚 Learning Goals
-
-This project demonstrates:
-
-* Low-level network programming
-* Multithreading in C++
-* Client-server architecture
-* Synchronization and thread safety
+```sql
+CREATE TABLE messages (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL,
+    content TEXT NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
