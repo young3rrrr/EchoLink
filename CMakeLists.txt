@@ -15,3 +15,6 @@ add_executable(echolink_client
     src/main_client.cpp 
     src/network/TCPClient.cpp
 )
+
+# Лінкуємо сервер з бібліотекою PostgreSQL
+target_link_libraries(echolink_server PRIVATE pqxx pq)

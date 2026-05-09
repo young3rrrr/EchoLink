@@ -18,6 +18,10 @@
 #include <thread>
 #include <algorithm>
 #include "network/NetworkUtils.h"
+#include <pqxx/pqxx>
+
+// Рядок підключення до бази даних
+const std::string DB_CONN = "dbname=echolink_db user=echolink_user password=14341225 hostaddr=127.0.0.1 port=5432";
 
 /**
  * Конструктор: Ініціалізує екземпляр TCP сервера
@@ -112,35 +116,34 @@ bool TCPServer::start() {
  */
 void TCPServer::run() {
     is_running_ = true;
+    
+    std::vector<std::thread> client_threads; 
 
-    // Запускаємо окремий потік для читання команд адміністратора з консолі
-    std::thread([this]() {
+    std::thread console_thread([this]() {
         std::string command;
         while (is_running_) {
             std::getline(std::cin, command);
             
             if (command == "/stop" || command == "exit") {
                 std::cout << "[Server] Shutting down...\n";
-                stop(); // Викликаємо зупинку
+                stop(); 
                 break;
             } else if (!command.empty()) {
-                std::cout << "[Server] Unknown command. Use '/stop' or 'exit' to shutdown.\n";
+                std::cout << "[Server] Unknown command.\n";
             }
         }
-    }).detach();
+    });
 
-    // Основний цикл для постійного прийому клієнтських з'єднань
+    // Основний цикл для прийому з'єднань
     while (is_running_) {
         sockaddr_in client_address;
         socklen_t client_len = sizeof(client_address);
         
-        // Приймаємо з'єднання
         int client_socket = accept(server_fd_, (struct sockaddr*)&client_address, &client_len);
         
         if (client_socket == -1) {
-            // Якщо accept повернув помилку, перевіряємо, чи не зупинили ми сервер
             if (!is_running_) {
-                break; // Виходимо з циклу, бо сервер вимикається
+                break; 
             }
             std::cerr << "[Error] Failed to accept client.\n";
             continue;
@@ -153,7 +156,17 @@ void TCPServer::run() {
             client_sockets_.push_back(client_socket);
         }
         
-        std::thread(&TCPServer::handleClient, this, client_socket).detach();
+        client_threads.emplace_back(&TCPServer::handleClient, this, client_socket);
+    }
+   
+    if (console_thread.joinable()) {
+        console_thread.join();
+    }
+
+       for (auto& th : client_threads) {
+        if (th.joinable()) {
+            th.join();
+        }
     }
     
     std::cout << "=== Server successfully stopped ===\n";
@@ -193,44 +206,56 @@ void TCPServer::broadcastMessage(const std::string& message, int sender_socket) 
  * 
  * @param client_socket - дескриптор сокета для цього клієнта
  */
+
 void TCPServer::handleClient(int client_socket) {
-    
-    // Нескінченний цикл обробки повідомлень від клієнта
+    bool is_first_message = true; 
+
     while (true) {
-        std::string received_msg; // Сюди буде записано повідомлення будь-якого розміру
+        std::string received_msg;
         
-        // Отримуємо дані від клієнта за допомогою нашої нової функції
-        // Якщо receiveMessage повертає false, це означає розрив з'єднання або помилку
         if (!receiveMessage(client_socket, received_msg)) {
-            // Логуємо відключення клієнта
+            if (!is_running_) {
+                break; // Сервер вимикається
+            }
             std::cout << "[Info] Client " << client_socket << " disconnected.\n";
             
-            // Видаляємо клієнта зі списку підключених (з захистом мьютексом)
             std::lock_guard<std::mutex> lock(clients_mutex_);
             client_sockets_.erase(std::remove(client_sockets_.begin(), client_sockets_.end(), client_socket), client_sockets_.end());
             close(client_socket);
             
-            // Повідомляємо інших клієнтів про розрив з'єднання
             std::string disconnect_msg = "[Server]: Someone left the chat.";
             for (int fd : client_sockets_) {
-                // ВАЖЛИВО: Замінили send(...) на нашу нову функцію!
                 sendMessage(fd, disconnect_msg);
             }
-            break; // Вихід з циклу
+            break; 
         }
         
-        // Ця перевірка залишається без змін
         if (received_msg.find_first_not_of(" \t\n\r\f\v") == std::string::npos) {
-            // Якщо повідомлення містить лише пробіли, пропускаємо його
             continue;
         }
 
-        // Логуємо отримане повідомлення
-        std::cout << "[server log] received: " << received_msg << "\n";
+        std::string username = "System";
+        std::string content = received_msg;
         
-        // Розповсюджуємо повідомлення всім іншим клієнтам
+        size_t colon_pos = received_msg.find("]: ");
+        if (received_msg[0] == '[' && colon_pos != std::string::npos) {
+            username = received_msg.substr(1, colon_pos - 1); 
+            content = received_msg.substr(colon_pos + 3);     
+        }
+
+        if (username != "Server") {
+            saveMessageToDB(username, content);
+        }
+        
         broadcastMessage(received_msg, client_socket);
-    }
+
+        if (is_first_message) {
+            is_first_message = false;
+            sendHistoryToClient(client_socket);
+        }
+    } 
+
+    std::cout << "[Debug] Client thread for socket " << client_socket << " safely closed.\n";
 }
 
 /**
@@ -265,5 +290,54 @@ void TCPServer::stop() {
         
         close(server_fd_); // Тепер безпечно закриваємо
         server_fd_ = -1;
+    }
+}
+
+/**
+ * Зберігає повідомлення у базу даних PostgreSQL
+ */
+void TCPServer::saveMessageToDB(const std::string& username, const std::string& content) {
+    try {
+        // Відкриваємо з'єднання
+        pqxx::connection conn(DB_CONN);
+        pqxx::work txn(conn); // Транзакція для запису
+        
+        // Використовуємо підготовлений запит для захисту від SQL-ін'єкцій
+        txn.exec("INSERT INTO messages (username, content) VALUES ($1, $2)", pqxx::params{username, content});
+        txn.commit(); // Підтверджуємо запис
+        
+    } catch (const std::exception& e) {
+        std::cerr << "[DB Error] Failed to save message: " << e.what() << "\n";
+    }
+}
+
+/**
+ * Дістає 25 останніх повідомлень та відправляє їх клієнту
+ */
+void TCPServer::sendHistoryToClient(int client_socket) {
+    try {
+        pqxx::connection conn(DB_CONN);
+        pqxx::nontransaction txn(conn); // Транзакція тільки для читання
+        
+        // SQL-запит: беремо 25 останніх повідомлень і перевертаємо їх у хронологічному порядку
+        pqxx::result res = txn.exec(
+            "SELECT username, content FROM ("
+            "  SELECT id, username, content FROM messages ORDER BY id DESC LIMIT 25"
+            ") AS sub ORDER BY id ASC;"
+        );
+        
+        if (!res.empty()) {
+            sendMessage(client_socket, "\n--- Chat History (Last 25 messages) ---");
+            for (auto row : res) {
+                // Форматуємо назад у вигляд [Username]: Text
+                std::string user = row["username"].c_str();
+                std::string text = row["content"].c_str();
+                std::string formatted_msg = "[" + user + "]: " + text;
+                sendMessage(client_socket, formatted_msg);
+            }
+            sendMessage(client_socket, "---------------------------------------\n");
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "[DB Error] Failed to fetch history: " << e.what() << "\n";
     }
 }

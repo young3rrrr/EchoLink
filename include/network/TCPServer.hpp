@@ -3,6 +3,7 @@
 #include <vector>
 #include <mutex>
 #include <string>
+#include <atomic>
 
 class TCPServer {
 public:
@@ -27,4 +28,9 @@ private:
     std::mutex clients_mutex_;
     
     bool is_running_; // Додаємо прапорець стану сервера
+
+    void saveMessageToDB(const std::string& username, const std::string& content);
+    void sendHistoryToClient(int client_socket);
+    
+    std::atomic<int> active_threads_{0}; // Лічильник потоків
 };
