@@ -219,15 +219,15 @@ void TCPServer::broadcastMessage(const std::string &message,
 
 void TCPServer::handleClient(int client_socket) {
   bool is_first_message = true;
+  bool successfully_joined = false;
 
   while (true) {
     std::string received_msg;
 
     if (!receiveMessage(client_socket, received_msg)) {
       if (!is_running_) {
-        break; // Сервер вимикається
+        break;
       }
-      std::cout << "[Info] Client " << client_socket << " disconnected.\n";
 
       std::lock_guard<std::mutex> lock(clients_mutex_);
       client_sockets_.erase(std::remove(client_sockets_.begin(),
@@ -235,12 +235,17 @@ void TCPServer::handleClient(int client_socket) {
                             client_sockets_.end());
       close(client_socket);
 
-      std::string disconnect_msg = "[Server]: Someone left the chat.";
-      for (int fd : client_sockets_) {
-        sendMessage(fd, disconnect_msg);
+      if (successfully_joined) {
+          std::cout << "[Info] Client " << client_socket << " disconnected.\n";
+          std::string disconnect_msg = "[Server]: Someone left the chat.";
+          for (int fd : client_sockets_) {
+            sendMessage(fd, disconnect_msg);
+          }
       }
       break;
     }
+
+    successfully_joined = true;
 
     if (received_msg.find_first_not_of(" \t\n\r\f\v") == std::string::npos) {
       continue;
