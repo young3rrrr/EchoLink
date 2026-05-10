@@ -293,8 +293,10 @@ void TCPServer::stop() {
   {
     std::lock_guard<std::mutex> lock(clients_mutex_);
     std::string shutdown_msg = "[Server]: Server is shutting down.";
+
     for (int fd : client_sockets_) {
       sendMessage(fd, shutdown_msg); // Сповіщаємо клієнта
+      shutdown(fd, SHUT_RDWR); // Примусово перериваємо всі операції читання/запису
       close(fd);                     // Закриваємо його сокет
     }
     client_sockets_.clear(); // Очищаємо список
@@ -302,10 +304,7 @@ void TCPServer::stop() {
 
   // Перевіряємо, чи сокет сервера ще відкритий
   if (server_fd_ != -1) {
-    // === ДОДАНО ЦЮ СТРОЧКУ ===
-    // Примусово перериваємо всі операції читання/запису, що розблокує accept()
     shutdown(server_fd_, SHUT_RDWR);
-
     close(server_fd_); // Тепер безпечно закриваємо
     server_fd_ = -1;
   }

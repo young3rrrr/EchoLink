@@ -27,7 +27,7 @@ private:
   std::vector<int> client_sockets_;
   std::mutex clients_mutex_;
 
-  bool is_running_; // Додаємо прапорець стану сервера
+  std::atomic<bool> is_running_{false}; // Додаємо прапорець стану сервера
 
   void saveMessageToDB(const std::string &username, const std::string &content);
   void sendHistoryToClient(int client_socket);
