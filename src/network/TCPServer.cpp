@@ -84,9 +84,6 @@ void TCPServer::run() {
       continue;
     }
 
-    std::cout << "[Info] New connection! Socket allocated: " << client_socket
-              << "\n";
-
     {
       std::lock_guard<std::mutex> lock(clients_mutex_);
       client_sockets_.push_back(client_socket);
@@ -138,16 +135,20 @@ void TCPServer::handleClient(int client_socket) {
       close(client_socket);
 
       if (successfully_joined) {
-          std::cout << "[Info] Client " << client_socket << " disconnected.\n";
+          std::cout << "[Info] Client " << client_socket << " disconnected." << std::endl;
           std::string disconnect_msg = "[Server]: Someone left the chat.";
           for (int fd : client_sockets_) {
             sendMessage(fd, disconnect_msg);
           }
+          std::cout << "[Debug] Client thread for socket " << client_socket << " safely closed." << std::endl;
       }
       break;
     }
 
-    successfully_joined = true;
+    if (!successfully_joined) {
+        std::cout << "[Info] Verified real user connected! Socket: " << client_socket << std::endl;
+        successfully_joined = true;
+    }
 
     if (received_msg.find_first_not_of(" \t\n\r\f\v") == std::string::npos) {
       continue;
@@ -173,9 +174,7 @@ void TCPServer::handleClient(int client_socket) {
       sendHistoryToClient(client_socket);
     }
   }
-
-  std::cout << "[Debug] Client thread for socket " << client_socket
-            << " safely closed.\n";
+  
 }
 
 void TCPServer::stop() {
