@@ -1,98 +1,69 @@
-/**
- * @file TCPClient.cpp
- * @brief Реалізація TCP клієнта для додатку EchoLink
- *
- * Цей файл містить реалізацію TCP клієнта, який:
- * - Підключається до TCP сервера на вказаній IP адресі та порту
- * - Отримує повідомлення від сервера та інших клієнтів
- * - Відправляє повідомлення на сервер
- * - Управління з'єднанням та розривом з'єднання
- *
- * Клієнт використовує POSIX socket API та C++ потоки для одночасної
- * обробки отримання та відправлення повідомлень.
- */
-
 #include "network/TCPClient.hpp"
-
-#include "network/NetworkUtils.h" // Наш новий файл з функціями для динамічного буфера
+#include "network/NetworkUtils.h"
 #include <arpa/inet.h>
 #include <cstring>
-#include <fcntl.h> // Додаємо для неблокуючого сокета
+#include <fcntl.h>
 #include <iostream>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <thread>
 #include <unistd.h>
 
-/**
- * Конструктор: Ініціалізує екземпляр TCP клієнта
- */
-TCPClient::TCPClient(const std::string &ip, int port)
-    : ip_(ip), port_(port), socket_fd_(-1), is_running_(false) {}
+// --- Підключаємо модулі FTXUI ---
+#include <ftxui/component/component.hpp>
+#include <ftxui/component/screen_interactive.hpp>
+#include <ftxui/dom/elements.hpp>
+#include <ftxui/component/event.hpp>
 
-/**
- * Деструктор: Зчиняє ресурси клієнта
- */
+using namespace ftxui;
+
+TCPClient::TCPClient(const std::string &ip, int port)
+    : ip_(ip), port_(port), socket_fd_(-1), is_running_(false), screen_(nullptr) {}
+
 TCPClient::~TCPClient() { stop(); }
 
-/**
- * connectToServer(): Підключається до TCP сервера
- */
 bool TCPClient::connectToServer() {
-  // Створюємо TCP сокет для IPv4
   socket_fd_ = socket(AF_INET, SOCK_STREAM, 0);
   if (socket_fd_ == -1) {
     std::cerr << "Failed to create client socket\n";
     return false;
   }
 
-  // Заповнюємо структуру адреси сервера
   sockaddr_in server_address;
   memset(&server_address, 0, sizeof(server_address));
-  server_address.sin_family = AF_INET;    // IPv4
-  server_address.sin_port = htons(port_); // Перетворюємо номер порту
+  server_address.sin_family = AF_INET;
+  server_address.sin_port = htons(port_);
 
-  // Конвертуємо IP адресу з текстового формату у бінарний
   if (inet_pton(AF_INET, ip_.c_str(), &server_address.sin_addr) <= 0) {
     std::cerr << "Failed to convert IP address\n";
     stop();
     return false;
   }
 
-  std::cout << "Connecting to EchoLink server (" << ip_ << ":" << port_
-            << ")...\n";
+  std::cout << "Connecting to EchoLink server (" << ip_ << ":" << port_ << ")...\n";
 
-  // 1. Отримуємо поточні прапорці сокета і додаємо режим O_NONBLOCK
-  // (неблокуючий)
   int flags = fcntl(socket_fd_, F_GETFL, 0);
   fcntl(socket_fd_, F_SETFL, flags | O_NONBLOCK);
 
-  // 2. Робимо спробу підключення (вона поверне керування миттєво)
-  int res = connect(socket_fd_, (struct sockaddr *)&server_address,
-                    sizeof(server_address));
+  int res = connect(socket_fd_, (struct sockaddr *)&server_address, sizeof(server_address));
 
   if (res < 0) {
     if (errno == EINPROGRESS) {
-      // Підключення в процесі. Використовуємо select для очікування з таймаутом
       fd_set write_set;
       FD_ZERO(&write_set);
       FD_SET(socket_fd_, &write_set);
 
       struct timeval timeout;
-      timeout.tv_sec = 5;  // Максимальний час очікування (5 секунд)
-      timeout.tv_usec = 0; // Мікросекунди
+      timeout.tv_sec = 5;
+      timeout.tv_usec = 0;
 
-      // Чекаємо, поки сокет стане доступним для запису (що означає успішне
-      // підключення) або вийде час
       res = select(socket_fd_ + 1, NULL, &write_set, NULL, &timeout);
 
       if (res == 0) {
-        // Таймаут! Сервер не відповів за 5 секунд
         std::cerr << "Connection timed out! The server is unreachable.\n";
         stop();
         return false;
       } else if (res > 0) {
-        // Перевіряємо, чи немає прихованих помилок на сокеті
         int so_error;
         socklen_t len = sizeof(so_error);
         getsockopt(socket_fd_, SOL_SOCKET, SO_ERROR, &so_error, &len);
@@ -113,117 +84,115 @@ bool TCPClient::connectToServer() {
     }
   }
 
-  // 3. Повертаємо сокет назад у нормальний (блокуючий) режим для подальшої
-  // роботи
   fcntl(socket_fd_, F_SETFL, flags);
-
   std::cout << "Success! Connection with server established.\n";
 
-  // Запитуємо у користувача введення ім'я (юзернейм) одразу після успішного
-  // підключення
   std::cout << "Enter your username: ";
   std::getline(std::cin, username_);
 
-  // Готуємо повідомлення про приєднання користувача до чату
   std::string join_msg = "[Server]: User " + username_ + " joined the chat!";
-
-  // ВАЖЛИВО: Використовуємо нашу нову функцію замість send()
   sendMessage(socket_fd_, join_msg);
 
-  // Відмічаємо, що клієнт запущений і готовий до роботи
   is_running_ = true;
   return true;
 }
 
-/**
- * receiveMessages(): Отримує повідомлення від сервера
- */
 void TCPClient::receiveMessages() {
-  // Буфер char[1024] більше не потрібен!
-
-  // Безперервний цикл отримання повідомлень від сервера
   while (is_running_) {
-    std::string
-        received_msg; // Сюди буде записано повідомлення будь-якого розміру
-
-    // Отримуємо дані від сервера за допомогою нашої нової функції
-    // Якщо receiveMessage повертає false, це означає розрив з'єднання
+    std::string received_msg;
+    
     if (!receiveMessage(socket_fd_, received_msg)) {
-      std::cout << "\n[Connection to server lost]\n";
-      // Встановлюємо флаг, що клієнт вже не працює
+      {
+        std::lock_guard<std::mutex> lock(history_mutex_);
+        chat_history_.push_back("[Connection to server lost]");
+      }
       is_running_ = false;
-      break; // Вихід з циклу
+      // Кажемо екрану перемалюватися
+      if (screen_) screen_->PostEvent(Event::Custom); 
+      break;
     }
 
-    // Виводимо отримане повідомлення на екран
-    std::cout << received_msg << "\n";
+    {
+      std::lock_guard<std::mutex> lock(history_mutex_);
+      chat_history_.push_back(received_msg);
+    }
+    // Кажемо екрану перемалюватися після отримання нового повідомлення
+    if (screen_) screen_->PostEvent(Event::Custom);
   }
 }
 
-/**
- * run(): Основний цикл роботи клієнта
- */
 void TCPClient::run() {
-  // Запускаємо окремий поток для прослухування вхідних повідомлень від сервера
+  // Запускаємо потік отримання повідомлень
   std::thread(&TCPClient::receiveMessages, this).detach();
 
-  std::string message;
-  // Основний цикл для отримання введення від користувача
-  while (is_running_) {
-    // Читаємо рядок, введений користувачем
-    std::getline(std::cin, message);
+  // Ініціалізуємо екран
+  auto screen = ScreenInteractive::Fullscreen();
+  screen_ = &screen; // Зберігаємо вказівник для фонового потоку
 
-    message.erase(0, message.find_first_not_of(
-                         " \t\n\r\f\v")); // Видаляємо початкові пробіли
-    message.erase(message.find_last_not_of(" \t\n\r\f\v") +
-                  1); // Видаляємо кінцеві пробіли
+  std::string input_text;
 
-    if (message.empty()) {
-      // Якщо користувач ввів лише пробіли, пропускаємо відправку порожнього
-      // повідомлення
-      continue;
-    }
+  // Налаштування поля вводу
+  InputOption option;
+  option.on_enter = [&] {
+    if (input_text.empty()) return;
 
-    // Якщо сервер відключився і поток отримання завершився, виходимо з циклу
-    // вводу
-    if (!is_running_)
-      break;
-
-    // Перевіряємо спеціальну команду для виходу
-    if (message == "/exit") {
-      // Готуємо повідомлення про відхід користувача
+    if (input_text == "/exit" || input_text == "/stop") {
       std::string leave_msg = "[Server]: User " + username_ + " left the chat.";
-
-      // ВАЖЛИВО: Використовуємо нашу нову функцію замість send()
       sendMessage(socket_fd_, leave_msg);
-
-      // Зупиняємо клієнт та закриваємо з'єднання
       stop();
-      break;
+      screen.Exit(); // Коректно закриваємо графічний інтерфейс
+      return;
     }
 
-    // Форматуємо повідомлення з ім'ям користувача
-    std::string formatted_message = "[" + username_ + "]: " + message;
-
-    // ВАЖЛИВО: Використовуємо нашу нову функцію замість send()
+    std::string formatted_message = "[" + username_ + "]: " + input_text;
     sendMessage(socket_fd_, formatted_message);
-  }
 
-  // Виводимо повідомлення про завершення роботи клієнта
-  std::cout << "Client finished working.\n";
+    // Додаємо власне повідомлення в локальну історію
+    {
+      std::lock_guard<std::mutex> lock(history_mutex_);
+      chat_history_.push_back(formatted_message);
+    }
+
+    input_text.clear(); // Очищаємо поле вводу
+  };
+
+  Component input_field = Input(&input_text, "Type message...", option);
+
+  // Створюємо верстку (Renderer)
+  auto renderer = Renderer(input_field, [&] {
+    Elements history_elements;
+    {
+      std::lock_guard<std::mutex> lock(history_mutex_);
+      // Перетворюємо рядки історії на текстові елементи FTXUI
+      for (const auto& msg : chat_history_) {
+        history_elements.push_back(text(msg));
+      }
+    }
+
+    // Вікно чату: вертикальний список з прокруткою (yframe)
+    auto history_box = vbox(std::move(history_elements)) | yframe | yflex;
+
+    // Головна структура екрану
+    return vbox({
+      text(" EchoLink TUI Chat ") | bold | center, // Заголовок
+      separator(),                                 // Лінія
+      history_box,                                 // Історія повідомлень (займає весь вільний простір)
+      separator(),                                 // Лінія
+      hbox({text(" " + username_ + " > ") | color(Color::Green), input_field->Render()}) // Рядок вводу
+    }) | border; // Огортаємо все в рамку
+  });
+
+  // ЗАПУСК ГРАФІКИ (Блокує потік, поки користувач не натисне /exit або Ctrl+C)
+  screen.Loop(renderer);
+
+  screen_ = nullptr;
+  std::cout << "\nClient closed.\n";
 }
 
-/**
- * stop(): Зупиняє клієнт та закриває з'єднання
- */
 void TCPClient::stop() {
-  // Перевіряємо, чи сокет ще відкритий
   if (socket_fd_ != -1) {
-    // Встановлюємо флаг, що клієнт повинен припинити роботу
     is_running_ = false;
-    // Закриваємо сокет клієнта
     close(socket_fd_);
-    // Позначаємо, що сокет закритий
     socket_fd_ = -1;
   }
 }
