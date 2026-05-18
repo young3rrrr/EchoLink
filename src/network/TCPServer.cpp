@@ -395,7 +395,9 @@ void TCPServer::saveMessageToDB(const std::string &username,
     pqxx::work txn(conn); // Транзакція для запису
 
     // Використовуємо підготовлений запит для захисту від SQL-ін'єкцій
-    txn.exec("INSERT INTO messages (username, content) VALUES ($1, $2)", pqxx::params{username, content});
+    txn.exec("INSERT INTO messages (username, content) VALUES (" + 
+             txn.quote(username) + ", " + 
+             txn.quote(content) + ")");
     txn.commit(); // Підтверджуємо запис
 
   } catch (const std::exception &e) {
@@ -417,10 +419,12 @@ void TCPServer::sendHistoryToClient(int client_socket, const std::string &userna
     }
 
     // 2. Отправляем историю приватных чатов (где юзер либо отправитель, либо получатель)
+    // 2. Отправляем историю приватных чатов (где юзер либо отправитель, либо получатель)
     pqxx::result priv_res = txn.exec(
-        "SELECT sender_username, receiver_username, content FROM private_messages "
-        "WHERE sender_username = $1 OR receiver_username = $1 ORDER BY id ASC;",
-        pqxx::params{username});
+      "SELECT sender_username, receiver_username, content FROM private_messages "
+      "WHERE sender_username = " + txn.quote(username) + 
+      " OR receiver_username = " + txn.quote(username) + " ORDER BY id ASC;"
+    );
 
     for (auto row : priv_res) {
       std::string sender = row["sender_username"].c_str();
@@ -443,7 +447,9 @@ bool TCPServer::registerUser(const std::string &username, const std::string &pas
     pqxx::connection conn(DB_CONN.c_str());
     pqxx::work txn(conn);
     // Добавляем юзера (пока храним пароль как есть, для учебного проекта этого достаточно)
-    txn.exec("INSERT INTO users (username, password) VALUES ($1, $2)", pqxx::params{username, password});
+    txn.exec("INSERT INTO users (username, password) VALUES (" + 
+             txn.quote(username) + ", " + 
+             txn.quote(password) + ")");
     txn.commit();
     return true;
   } catch (const std::exception &e) {
@@ -456,7 +462,9 @@ bool TCPServer::authenticateUser(const std::string &username, const std::string 
   try {
     pqxx::connection conn(DB_CONN.c_str());
     pqxx::nontransaction txn(conn);
-    pqxx::result res = txn.exec("SELECT id FROM users WHERE username = $1 AND password = $2", pqxx::params{username, password});
+    pqxx::result res = txn.exec("SELECT id FROM users WHERE username = " + 
+                                txn.quote(username) + " AND password = " + 
+                                txn.quote(password));
     return !res.empty(); // Если нашли строку — логин и пароль верные
   } catch (const std::exception &e) {
     std::cerr << "[DB Error] Auth failed: " << e.what() << "\n";
@@ -468,7 +476,10 @@ void TCPServer::savePrivateMessageToDB(const std::string &sender, const std::str
   try {
     pqxx::connection conn(DB_CONN.c_str());
     pqxx::work txn(conn);
-    txn.exec("INSERT INTO private_messages (sender_username, receiver_username, content) VALUES ($1, $2, $3)", pqxx::params{sender, receiver, content});
+    txn.exec("INSERT INTO private_messages (sender_username, receiver_username, content) VALUES (" + 
+             txn.quote(sender) + ", " + 
+             txn.quote(receiver) + ", " + 
+             txn.quote(content) + ")");
     txn.commit();
   } catch (const std::exception &e) {
     std::cerr << "[DB Error] Failed to save private message: " << e.what() << "\n";
