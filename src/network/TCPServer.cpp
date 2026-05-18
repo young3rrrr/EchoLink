@@ -20,6 +20,7 @@
 #include <pqxx/pqxx>
 #include <thread>
 #include <unistd.h>
+#include <sstream>
 
 // Рядок підключення до бази даних
 const std::string DB_CONN = "dbname=echolink_db user=echolink_user "
@@ -215,65 +216,140 @@ void TCPServer::broadcastMessage(const std::string &message,
  */
 
 void TCPServer::handleClient(int client_socket) {
-  bool is_first_message = true;
-  bool successfully_joined = false;
+  bool is_authenticated = false;
+  std::string current_username = "";
+
+  // Приветствуем пользователя и требуем авторизацию
+  sendMessage(client_socket, "[Server]: Welcome! Please authenticate.\nUsage: /register <login> <pass> OR /login <login> <pass>");
 
   while (true) {
     std::string received_msg;
 
+    // Если клиент отключился
     if (!receiveMessage(client_socket, received_msg)) {
-      if (!is_running_) {
-        break;
-      }
+      if (!is_running_) break;
 
       std::lock_guard<std::mutex> lock(clients_mutex_);
-      client_sockets_.erase(std::remove(client_sockets_.begin(),
-                                        client_sockets_.end(), client_socket),
-                            client_sockets_.end());
+      client_sockets_.erase(std::remove(client_sockets_.begin(), client_sockets_.end(), client_socket), client_sockets_.end());
       close(client_socket);
 
-      if (successfully_joined) {
-          std::cout << "[Info] Client " << client_socket << " disconnected." << std::endl;
-          std::string disconnect_msg = "[Server]: Someone left the chat.";
-          for (int fd : client_sockets_) {
-            sendMessage(fd, disconnect_msg);
-          }
-          std::cout << "[Debug] Client thread for socket " << client_socket << " safely closed." << std::endl;
+      // Оповещаем остальных только если человек успел войти в аккаунт
+    if (is_authenticated) {
+        {
+            std::lock_guard<std::mutex> lock(clients_mutex_);
+            active_users_.erase(current_username); // Удаляем из списка онлайн
+        }
+        std::cout << "[Info] User " << current_username << " disconnected.\n";
+        std::string disconnect_msg = "[Server]: " + current_username + " left the chat.";
+        for (int fd : client_sockets_) {
+          sendMessage(fd, disconnect_msg);
+        }
       }
-      break;
     }
 
-    if (!successfully_joined) {
-        std::cout << "[Info] Verified real user connected! Socket: " << client_socket << std::endl;
-        successfully_joined = true;
-    }
+    // Игнорируем пустые нажатия Enter
+    if (received_msg.find_first_not_of(" \t\n\r\f\v") == std::string::npos) continue;
 
-    if (received_msg.find_first_not_of(" \t\n\r\f\v") == std::string::npos) {
-      continue;
-    }
-
-    std::string username = "System";
+    // Очищаем сообщение от префикса "[Name]: " который шлет клиент
     std::string content = received_msg;
-
     size_t colon_pos = received_msg.find("]: ");
     if (received_msg[0] == '[' && colon_pos != std::string::npos) {
-      username = received_msg.substr(1, colon_pos - 1);
       content = received_msg.substr(colon_pos + 3);
     }
 
-    if (username != "Server") {
-      saveMessageToDB(username, content);
+    // --- 1. РЕГИСТРАЦИЯ ---
+    if (content.rfind("/register ", 0) == 0) {
+      std::istringstream iss(content);
+      std::string cmd, user, pass;
+      iss >> cmd >> user >> pass;
+
+      if (user.empty() || pass.empty()) {
+        sendMessage(client_socket, "[Server]: Usage: /register <login> <password>");
+      } else if (registerUser(user, pass)) {
+        sendMessage(client_socket, "[Server]: Registration successful! You can now /login");
+      } else {
+        sendMessage(client_socket, "[Server]: Error: Username already taken.");
+      }
+      continue;
     }
 
-    broadcastMessage(received_msg, client_socket);
+    // --- 2. ЛОГИН ---
+    if (content.rfind("/login ", 0) == 0) {
+      std::istringstream iss(content);
+      std::string cmd, user, pass;
+      iss >> cmd >> user >> pass;
 
-    if (is_first_message) {
-      is_first_message = false;
-      sendHistoryToClient(client_socket);
+      if (user.empty() || pass.empty()) {
+        sendMessage(client_socket, "[Server]: Usage: /login <login> <password>");
+      } else if (authenticateUser(user, pass)) {
+        is_authenticated = true;
+        current_username = user;
+        {
+            std::lock_guard<std::mutex> lock(clients_mutex_);
+            active_users_[user] = client_socket;
+        }
+        sendMessage(client_socket, "[Server]: Login successful! Welcome, " + user + "!");
+        
+        // Оповещаем чат и отдаем историю ТОЛЬКО после успешного входа
+        broadcastMessage("[Server]: " + user + " joined the chat!", client_socket);
+        sendHistoryToClient(client_socket, current_username);
+      } else {
+        sendMessage(client_socket, "[Server]: Error: Invalid username or password.");
+      }
+      continue;
     }
+
+    // --- ЗАЩИТА ОТ АНОНИМОВ ---
+    if (!is_authenticated) {
+      sendMessage(client_socket, "[Server]: Access Denied. Please /login first.");
+      continue;
+    }
+
+// --- 3. ПРИВАТНЫЕ СООБЩЕНИЯ ---
+    if (content.rfind("/msg ", 0) == 0) {
+      std::istringstream iss(content);
+      std::string cmd, target_user;
+      iss >> cmd >> target_user;
+      
+      // Достаем остаток строки как сообщение
+      std::string private_text;
+      std::getline(iss, private_text);
+      
+      if (target_user.empty() || private_text.empty() || private_text.find_first_not_of(" \t") == std::string::npos) {
+        sendMessage(client_socket, "[Server]: Usage: /msg <username> <message>");
+        continue;
+      }
+      
+      // Обрезаем лишние пробелы в начале сообщения
+      private_text.erase(0, private_text.find_first_not_of(" \t"));
+      
+      // Сохраняем в БД
+      savePrivateMessageToDB(current_username, target_user, private_text);
+      
+      std::string formatted_msg = "[PRIVATE_MSG][" + current_username + "][" + current_username + "]: " + private_text;
+      std::string formatted_echo = "[PRIVATE_MSG][" + target_user + "][" + current_username + "]: " + private_text;
+      
+      // Ищем получателя и отправляем
+      {
+        std::lock_guard<std::mutex> lock(clients_mutex_);
+        if (active_users_.count(target_user)) {
+          sendMessage(active_users_[target_user], formatted_msg);
+        } else {
+          sendMessage(client_socket, "[Server]: User " + target_user + " is offline. Message saved to history.");
+        }
+      }
+      // Отправляем копию себе, чтобы видеть, что написали
+      sendMessage(client_socket, formatted_echo);
+      continue;
+    }
+
+    // --- ОБЫЧНЫЙ ЧАТ ---
+    saveMessageToDB(current_username, content);
+    std::string formatted_msg = "[" + current_username + "]: " + content;
+    broadcastMessage(formatted_msg, client_socket);
   }
-
 }
+
 /**
  * stop(): Зупиняє сервер та закриває сокет
  *
@@ -319,8 +395,7 @@ void TCPServer::saveMessageToDB(const std::string &username,
     pqxx::work txn(conn); // Транзакція для запису
 
     // Використовуємо підготовлений запит для захисту від SQL-ін'єкцій
-    txn.exec_params("INSERT INTO messages (username, content) VALUES ($1, $2)",
-                    username, content);
+    txn.exec("INSERT INTO messages (username, content) VALUES ($1, $2)", pqxx::params{username, content});
     txn.commit(); // Підтверджуємо запис
 
   } catch (const std::exception &e) {
@@ -328,33 +403,74 @@ void TCPServer::saveMessageToDB(const std::string &username,
   }
 }
 
-/**
- * Дістає 25 останніх повідомлень та відправляє їх клієнту
- */
-void TCPServer::sendHistoryToClient(int client_socket) {
+void TCPServer::sendHistoryToClient(int client_socket, const std::string &username) {
   try {
-    pqxx::connection conn(DB_CONN);
-    pqxx::nontransaction txn(conn); // Транзакція тільки для читання
+    pqxx::connection conn(DB_CONN.c_str());
+    pqxx::nontransaction txn(conn);
 
-    // SQL-запит: беремо 25 останніх повідомлень і перевертаємо їх у
-    // хронологічному порядку
-    pqxx::result res = txn.exec(
-        "SELECT username, content FROM ("
-        "  SELECT id, username, content FROM messages ORDER BY id DESC LIMIT 25"
-        ") AS sub ORDER BY id ASC;");
+    // 1. Отправляем историю глобального чата (всю)
+    pqxx::result res = txn.exec("SELECT username, content FROM messages ORDER BY id ASC;");
+    for (auto row : res) {
+      std::string user = row["username"].c_str();
+      std::string text = row["content"].c_str();
+      sendMessage(client_socket, "[" + user + "]: " + text);
+    }
 
-    if (!res.empty()) {
-      sendMessage(client_socket, "\n--- Chat History (Last 25 messages) ---");
-      for (auto row : res) {
-        // Форматуємо назад у вигляд [Username]: Text
-        std::string user = row["username"].c_str();
-        std::string text = row["content"].c_str();
-        std::string formatted_msg = "[" + user + "]: " + text;
-        sendMessage(client_socket, formatted_msg);
-      }
-      sendMessage(client_socket, "---------------------------------------\n");
+    // 2. Отправляем историю приватных чатов (где юзер либо отправитель, либо получатель)
+    pqxx::result priv_res = txn.exec(
+        "SELECT sender_username, receiver_username, content FROM private_messages "
+        "WHERE sender_username = $1 OR receiver_username = $1 ORDER BY id ASC;",
+        pqxx::params{username});
+
+    for (auto row : priv_res) {
+      std::string sender = row["sender_username"].c_str();
+      std::string receiver = row["receiver_username"].c_str();
+      std::string text = row["content"].c_str();
+
+      // Определяем, в какую вкладку это положить
+      std::string target_tab = (sender == username) ? receiver : sender;
+      
+      std::string msg = "[PRIVATE_MSG][" + target_tab + "][" + sender + "]: " + text;
+      sendMessage(client_socket, msg);
     }
   } catch (const std::exception &e) {
     std::cerr << "[DB Error] Failed to fetch history: " << e.what() << "\n";
+  }
+}
+
+bool TCPServer::registerUser(const std::string &username, const std::string &password) {
+  try {
+    pqxx::connection conn(DB_CONN.c_str());
+    pqxx::work txn(conn);
+    // Добавляем юзера (пока храним пароль как есть, для учебного проекта этого достаточно)
+    txn.exec("INSERT INTO users (username, password) VALUES ($1, $2)", pqxx::params{username, password});
+    txn.commit();
+    return true;
+  } catch (const std::exception &e) {
+    std::cerr << "[DB Error] Registration failed: " << e.what() << "\n";
+    return false; // Ошибка (например, пользователь с таким ником уже существует)
+  }
+}
+
+bool TCPServer::authenticateUser(const std::string &username, const std::string &password) {
+  try {
+    pqxx::connection conn(DB_CONN.c_str());
+    pqxx::nontransaction txn(conn);
+    pqxx::result res = txn.exec("SELECT id FROM users WHERE username = $1 AND password = $2", pqxx::params{username, password});
+    return !res.empty(); // Если нашли строку — логин и пароль верные
+  } catch (const std::exception &e) {
+    std::cerr << "[DB Error] Auth failed: " << e.what() << "\n";
+    return false;
+  }
+}
+
+void TCPServer::savePrivateMessageToDB(const std::string &sender, const std::string &receiver, const std::string &content) {
+  try {
+    pqxx::connection conn(DB_CONN.c_str());
+    pqxx::work txn(conn);
+    txn.exec("INSERT INTO private_messages (sender_username, receiver_username, content) VALUES ($1, $2, $3)", pqxx::params{sender, receiver, content});
+    txn.commit();
+  } catch (const std::exception &e) {
+    std::cerr << "[DB Error] Failed to save private message: " << e.what() << "\n";
   }
 }

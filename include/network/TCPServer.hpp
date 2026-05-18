@@ -4,6 +4,7 @@
 #include <netinet/in.h>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 class TCPServer {
 public:
@@ -29,8 +30,14 @@ private:
 
   std::atomic<bool> is_running_{false}; // Додаємо прапорець стану сервера
 
+  bool registerUser(const std::string &username, const std::string &password);
+  bool authenticateUser(const std::string &username, const std::string &password);
+
+  std::unordered_map<std::string, int> active_users_; 
+  void savePrivateMessageToDB(const std::string &sender, const std::string &receiver, const std::string &content);
+
   void saveMessageToDB(const std::string &username, const std::string &content);
-  void sendHistoryToClient(int client_socket);
+  void sendHistoryToClient(int client_socket, const std::string &username);
 
   std::atomic<int> active_threads_{0}; // Лічильник потоків
 };
