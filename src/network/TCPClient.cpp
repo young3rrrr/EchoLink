@@ -3,7 +3,6 @@
 #include <arpa/inet.h>
 #include <cstring>
 #include <fcntl.h>
-#include <iostream>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <thread>
@@ -336,11 +335,9 @@ void TCPClient::run() {
       }
 
       // Build message elements for rendering
-      for (int i = 0; i < (int)msgs.size(); ++i) {
-        auto el = text(msgs[i]);
-        if (i == (int)msgs.size() - 1 - scroll_offset_) {
-          el = el | focus;
-        }
+        for (int i = 0; i < (int)msgs.size(); ++i) {
+        auto el = paragraph(msgs[i]); 
+        if (i == (int)msgs.size() - 1 - scroll_offset_) el = el | focus;
         history_elements.push_back(el);
       }
     }
