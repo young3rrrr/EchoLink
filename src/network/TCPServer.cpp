@@ -239,7 +239,7 @@ void TCPServer::handleClient(int client_socket) {
   std::string current_username = "";
 
   std::cout << "[Info] New connection! Socket: " << client_socket << std::endl;
-  sendMessage(client_socket, "[Server]: Welcome! Please authenticate.\nUsage: /register <login> <pass> OR /login <login> <pass>");
+  sendMessage(client_socket, "[Server]: Welcome! Please authenticate.");
 
   while (true) {
     std::string received_msg;
@@ -294,7 +294,7 @@ void TCPServer::handleClient(int client_socket) {
       iss >> cmd >> user >> pass;
 
       if (user.empty() || pass.empty()) {
-        sendMessage(client_socket, "[Server]: Usage: /register <login> <password>");
+        sendMessage(client_socket, "[Server]: Error: Invalid registration credentials.");
       } else if (registerUser(user, pass)) {
         sendMessage(client_socket, "[Server]: Registration successful! You can now /login");
       } else {
@@ -310,7 +310,7 @@ void TCPServer::handleClient(int client_socket) {
       iss >> cmd >> user >> pass;
 
       if (user.empty() || pass.empty()) {
-        sendMessage(client_socket, "[Server]: Usage: /login <login> <password>");
+        sendMessage(client_socket, "[Server]: Error: Invalid login credentials.");
       } else if (authenticateUser(user, pass)) {
         is_authenticated = true;
         current_username = user;
@@ -366,7 +366,7 @@ void TCPServer::handleClient(int client_socket) {
 
       if (target_user.empty() || private_text.empty() || 
           private_text.find_first_not_of(" \t") == std::string::npos) {
-        sendMessage(client_socket, "[Server]: Usage: /msg <username> <message>");
+        sendMessage(client_socket, "[Server]: Error: Message cannot be empty.");
         continue;
       }
 
