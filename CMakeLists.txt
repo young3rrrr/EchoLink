@@ -8,14 +8,8 @@ find_package(Threads REQUIRED)
 
 include_directories(include)
 
-include(FetchContent)
-FetchContent_Declare(ftxui
-  GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI
-  GIT_TAG main
-)
-FetchContent_MakeAvailable(ftxui)
-
 option(BUILD_SERVER "Build the server component" ON)
+option(BUILD_CLIENT "Build the client component" ON)
 
 if(BUILD_SERVER)
     find_package(PkgConfig REQUIRED)
@@ -31,14 +25,23 @@ if(BUILD_SERVER)
     target_link_libraries(echolink_server PRIVATE ${PQXX_LIBRARIES} Threads::Threads)
 endif()
 
-add_executable(echolink_client 
-    src/main_client.cpp 
-    src/network/TCPClient.cpp
-)
+if(BUILD_CLIENT)
+    include(FetchContent)
+    FetchContent_Declare(ftxui
+      GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI
+      GIT_TAG main
+    )
+    FetchContent_MakeAvailable(ftxui)
 
-target_link_libraries(echolink_client PRIVATE 
-    Threads::Threads 
-    ftxui::screen 
-    ftxui::dom 
-    ftxui::component
-)
+    add_executable(echolink_client 
+        src/main_client.cpp 
+        src/network/TCPClient.cpp
+    )
+
+    target_link_libraries(echolink_client PRIVATE 
+        Threads::Threads 
+        ftxui::screen 
+        ftxui::dom 
+        ftxui::component
+    )
+endif()

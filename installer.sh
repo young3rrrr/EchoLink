@@ -17,7 +17,7 @@ fi
 
 echo "What dependencies do you want to install?"
 echo "1) Client side dependencies (C++, cmake, git)"
-echo "2) Server side dependencies (C++, cmake, git, pqxx)"
+echo "2) Server side dependencies (C++, cmake, git, pqxx, postgresql)"
 
 read -p "Enter your choice (1 or 2): " choice
 
@@ -48,13 +48,14 @@ case $choice in
             echo "Updating package lists..."
             sudo apt update
             echo "Installing dependencies..."
-            sudo apt install build-essential cmake git libpqxx-dev -y
+            sudo apt install build-essential cmake git libpqxx-dev postgresql -y
          elif command -v pacman &> /dev/null; then
             echo "Found Arch Linux package manager. Installing dependencies..."
             echo "Updating package lists..."
             sudo pacman -Syu --noconfirm
             echo "Installing dependencies..."
-            sudo pacman -S  cmake git libpqxx --noconfirm
+            sudo pacman -S  cmake git libpqxx postgresql --noconfirm
+            sudo -u postgres initdb -D /var/lib/postgres/data
          else
             echo "Unsupported package manager. Please install dependencies manually."
             exit 1
@@ -67,25 +68,25 @@ esac
 mkdir -p build && cd build ||  { echo "Failed to create build directory. Please check permissions and try again." && exit 1; }
 
 case $choice in 
-    1) echo "Настраиваем сборку только клиента..."
-       cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SERVER=OFF || { echo "Ошибка CMake"; exit 1; }
+    1) echo "Setting up the build for the client..."
+       cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SERVER=OFF -DBUILD_CLIENT=ON || { echo "Ошибка CMake"; exit 1; }
        ;;
-    2) echo "Настраиваем сборку клиента и сервера..."
-       cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SERVER=ON || { echo "Ошибка CMake"; exit 1; }
+    2) echo "Setting up the build for the server..."
+       cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SERVER=ON -DBUILD_CLIENT=OFF || { echo "Ошибка CMake"; exit 1; }
        ;;
 esac
 
-make || { echo "Ошибка компиляции"; exit 1; }
+make || { echo "Error occurred while compiling"; exit 1; }
 
-echo "Start linking builded files..."
+echo "Starting to link built files..."
 
 case $choice in 
-    1) sudo ln -sf "$(pwd)/build/echolink_client" /usr/local/bin/echolink_client || { echo "Failed to create symbolic link for the client. Please check permissions and try again."; exit 1; }
+    1) sudo ln -sf "$(pwd)/echolink_client" /usr/local/bin/echolink_client || { echo "Failed to create symbolic link for the client. Please check permissions and try again."; exit 1; }
        ;;
-    2) sudo ln -sf "$(pwd)/build/echolink_client" /usr/local/bin/echolink_client || { echo "Failed to create symbolic link for the client. Please check permissions and try again."; exit 1; }
-       sudo ln -sf "$(pwd)/build/echolink_server" /usr/local/bin/echolink_server || { echo "Failed to create symbolic link for the server. Please check permissions and try again."; exit 1; }
+    2) sudo ln -sf "$(pwd)/echolink_server" /usr/local/bin/echolink_server || { echo "Failed to create symbolic link for the server. Please check permissions and try again."; exit 1; }
        ;;
 esac
+echo "Symbolic links created successfully!"
 
 echo "Dependencies installed and Echolink built successfully!"
 
