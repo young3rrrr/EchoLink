@@ -6,11 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(Threads REQUIRED)
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(PQXX REQUIRED libpqxx)
-
-include_directories(include ${PQXX_INCLUDE_DIRS})
-link_directories(${PQXX_LIBRARY_DIRS})
+include_directories(include)
 
 include(FetchContent)
 FetchContent_Declare(ftxui
@@ -19,10 +15,21 @@ FetchContent_Declare(ftxui
 )
 FetchContent_MakeAvailable(ftxui)
 
-add_executable(echolink_server 
-    src/main_server.cpp 
-    src/network/TCPServer.cpp
-)
+option(BUILD_SERVER "Build the server component" ON)
+
+if(BUILD_SERVER)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(PQXX REQUIRED libpqxx)
+    
+    include_directories(${PQXX_INCLUDE_DIRS})
+    link_directories(${PQXX_LIBRARY_DIRS})
+
+    add_executable(echolink_server 
+        src/main_server.cpp 
+        src/network/TCPServer.cpp
+    )
+    target_link_libraries(echolink_server PRIVATE ${PQXX_LIBRARIES} Threads::Threads)
+endif()
 
 add_executable(echolink_client 
     src/main_client.cpp 
@@ -35,5 +42,3 @@ target_link_libraries(echolink_client PRIVATE
     ftxui::dom 
     ftxui::component
 )
-
-target_link_libraries(echolink_server PRIVATE ${PQXX_LIBRARIES} Threads::Threads)
