@@ -121,6 +121,8 @@ CREATE TABLE private_messages (
     content TEXT NOT NULL,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO echolink_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO echolink_user;
 EOF
         echo "Database setup completed successfully!"
         ;;
