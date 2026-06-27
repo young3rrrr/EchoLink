@@ -21,6 +21,6 @@ namespace echolink {
 constexpr int DEFAULT_PORT = 8080;
 
 /// Default IPv4 address of the EchoLink server (localhost for local development)
-constexpr const char *DEFAULT_SERVER_IP = "127.0.0.1";
+constexpr const char *DEFAULT_SERVER_IP = "echolink";
 
 } // namespace echolink

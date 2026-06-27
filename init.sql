@@ -1,0 +1,23 @@
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE messages (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) NOT NULL,
+    content TEXT NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE private_messages (
+    id SERIAL PRIMARY KEY,
+    sender_username VARCHAR(50) NOT NULL,
+    receiver_username VARCHAR(50) NOT NULL,
+    content TEXT NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO echolink_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO echolink_user;

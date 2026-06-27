@@ -8,6 +8,7 @@
 #include <thread>
 #include <unistd.h>
 #include <algorithm>
+#include <netdb.h>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
@@ -53,7 +54,11 @@ bool TCPClient::connectToServer() {
   memset(&server_address, 0, sizeof(server_address));
   server_address.sin_family = AF_INET;
   server_address.sin_port = htons(port_);
-  inet_pton(AF_INET, ip_.c_str(), &server_address.sin_addr);
+  struct hostent *host = gethostbyname(ip_.c_str());
+  if (host == nullptr) {
+      return false; // Не удалось найти IP по имени
+  }
+  memcpy(&server_address.sin_addr, host->h_addr_list[0], host->h_length);
 
   // Set socket to non-blocking mode for timeout-based connection
   int flags = fcntl(socket_fd_, F_GETFL, 0);

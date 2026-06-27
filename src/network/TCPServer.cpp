@@ -26,7 +26,7 @@
 
 /// Database connection string for PostgreSQL
 const std::string DB_CONN = "dbname=echolink_db user=echolink_user "
-                            "password=14341225 hostaddr=127.0.0.1 port=5432";
+                            "password=14341225 host=echolink_db port=5432";
 
 /**
  * @brief Constructs a TCPServer instance with the specified listening port.
