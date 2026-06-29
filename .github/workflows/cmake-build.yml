@@ -4,6 +4,11 @@ on: [push]
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: deploy/docker
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

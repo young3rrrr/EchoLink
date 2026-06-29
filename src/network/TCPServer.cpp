@@ -23,6 +23,7 @@
 #include <thread>
 #include <unistd.h>
 #include <sstream>
+#include <ranges>
 
 /// Database connection string for PostgreSQL
 const std::string DB_CONN = "dbname=echolink_db user=echolink_user "
@@ -208,7 +209,7 @@ void TCPServer::broadcastMessage(const std::string &message,
   std::lock_guard<std::mutex> lock(clients_mutex_);
 
   // Send message to all connected clients except the sender
-  for (int client_fd : client_sockets_) {
+  for (int client_fd : active_users_ | std::views::values) {
     if (client_fd != sender_socket) {
       // Use the network utility function for reliable message transmission
       sendMessage(client_fd, message);

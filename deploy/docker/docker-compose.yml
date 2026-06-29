@@ -6,14 +6,14 @@ services:
       POSTGRES_PASSWORD: 14341225
       POSTGRES_DB: echolink_db
     volumes:
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ../postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - echo_net
 
   echolink:
-    build: .
-    ports:
-      - "8080:8080"
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile
     depends_on:
       - echolink_db
     networks:
@@ -23,10 +23,21 @@ services:
     stdin_open: true
     tty: true
     build:
-      context: .
-      dockerfile: Dockerfile.client
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.client
     depends_on:
       - echolink_db
+      - echolink
+    networks:
+      - echo_net
+
+  reverse_proxy:
+    image: nginx:latest
+    ports:
+      - "80:80"
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
       - echolink
     networks:
       - echo_net
