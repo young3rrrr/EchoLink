@@ -16,3 +16,8 @@ echolink_server
 
 .DS_Store
 Thumbs.db
+
+
+deploy/postgres/backup/*
+
+!deploy/postgres/backup/.gitkeep

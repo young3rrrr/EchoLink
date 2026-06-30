@@ -25,3 +25,8 @@ Thumbs.db
 docker-compose.yml
 Dockerfile*
 installer.sh
+
+
+deploy/postgres/backup/*
+
+!deploy/postgres/backup/.gitkeep
