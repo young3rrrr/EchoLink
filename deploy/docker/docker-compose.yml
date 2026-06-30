@@ -1,0 +1,61 @@
+services:
+  echolink_db:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: echolink_user
+      POSTGRES_PASSWORD: 14341225
+      POSTGRES_DB: echolink_db
+    volumes:
+      - ../postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - pg_data:/var/lib/postgresql
+    networks:
+      - echo_net
+
+  echolink:
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile
+    depends_on:
+      - echolink_db
+    networks:
+      - echo_net
+
+  echolink_client:
+    stdin_open: true
+    tty: true
+    build:
+      context: ../../
+      dockerfile: deploy/docker/Dockerfile.client
+    depends_on:
+      - echolink_db
+      - echolink
+    networks:
+      - echo_net
+
+  reverse_proxy:
+    image: nginx:latest
+    ports:
+      - "80:80"
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - echolink
+    networks:
+      - echo_net
+
+  backup_db:
+    image: postgres:alpine
+    volumes:
+      - ../postgres/backup.sh:/backup.sh
+      - ../postgres/backup:/backup
+    depends_on:
+      - echolink_db
+    command: 
+    - sh -c "chmod +x /backup.sh && echo '0 2 * * * /backup.sh' > /var/spool/cron/crontabs/root && crond -f"
+
+volumes:
+  pg_data:
+
+networks:
+  echo_net:
+    driver: bridge

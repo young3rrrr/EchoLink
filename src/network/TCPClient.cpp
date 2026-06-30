@@ -8,6 +8,7 @@
 #include <thread>
 #include <unistd.h>
 #include <algorithm>
+#include <netdb.h>
 
 #include <ftxui/component/component.hpp>
 #include <ftxui/component/screen_interactive.hpp>
@@ -29,13 +30,20 @@ bool TCPClient::connectToServer() {
   memset(&server_address, 0, sizeof(server_address));
   server_address.sin_family = AF_INET;
   server_address.sin_port = htons(port_);
-  inet_pton(AF_INET, ip_.c_str(), &server_address.sin_addr);
+  struct hostent *host = gethostbyname(ip_.c_str());
+  if (host == nullptr) {
+      return false; 
+  }
+  memcpy(&server_address.sin_addr, host->h_addr_list[0], host->h_length);
 
+  
   int flags = fcntl(socket_fd_, F_GETFL, 0);
   fcntl(socket_fd_, F_SETFL, flags | O_NONBLOCK);
 
+  
   int res = connect(socket_fd_, (struct sockaddr *)&server_address, sizeof(server_address));
   if (res < 0 && errno == EINPROGRESS) {
+    
     fd_set write_set;
     FD_ZERO(&write_set);
     FD_SET(socket_fd_, &write_set);
@@ -47,6 +55,7 @@ bool TCPClient::connectToServer() {
     }
   }
 
+  
   fcntl(socket_fd_, F_SETFL, flags);
 
   is_running_ = true;
@@ -57,7 +66,9 @@ void TCPClient::receiveMessages() {
   while (is_running_) {
     std::string received_msg;
 
+    
     if (!receiveMessage(socket_fd_, received_msg)) {
+      
       {
         std::lock_guard<std::mutex> lock(history_mutex_);
         auth_status_msg_ = "[Connection to server lost]";
@@ -68,15 +79,21 @@ void TCPClient::receiveMessages() {
       break;
     }
 
+    
     if (!is_authenticated_) {
       std::lock_guard<std::mutex> lock(history_mutex_);
       if (received_msg.find("Login successful!") != std::string::npos) {
+        
         is_authenticated_ = true;
         app_state_ = 1;
       } else {
+        
         auth_status_msg_ = received_msg;
       }
     } else {
+      
+
+      
       if (received_msg.rfind("[SYS_TAB_OPEN]", 0) == 0) {
         std::string target_tab = received_msg.substr(14);
 
@@ -84,20 +101,24 @@ void TCPClient::receiveMessages() {
         auto it = std::find(chat_tabs_.begin(), chat_tabs_.end(), target_tab);
 
         if (it == chat_tabs_.end()) {
+          
           chat_tabs_.push_back(target_tab);
           selected_tab_ = chat_tabs_.size() - 1;
         } else {
+          
           selected_tab_ = std::distance(chat_tabs_.begin(), it);
         }
 
         scroll_offset_ = 0;
         if (screen_) screen_->PostEvent(Event::Custom);
-        continue; 
+        continue;  
       }
 
+      
       std::string target_tab = "Global";
       std::string display_msg = received_msg;
 
+      
       if (received_msg.rfind("[PRIVATE_MSG][", 0) == 0) {
         size_t end_bracket = received_msg.find("]", 14);
         if (end_bracket != std::string::npos) {
@@ -105,31 +126,37 @@ void TCPClient::receiveMessages() {
           display_msg = received_msg.substr(end_bracket + 1);
 
           std::lock_guard<std::mutex> lock(history_mutex_);
-          // Create private chat tab if it doesn't exist
+          
           if (std::find(chat_tabs_.begin(), chat_tabs_.end(), target_tab) == chat_tabs_.end()) {
             chat_tabs_.push_back(target_tab);
           }
         }
       }
 
+      
       {
         std::lock_guard<std::mutex> lock(history_mutex_);
         chat_histories_[target_tab].push_back(display_msg);
       }
     }
 
+    
     if (screen_) screen_->PostEvent(Event::Custom);
   }
 }
 
 void TCPClient::run() {
+  
   std::thread(&TCPClient::receiveMessages, this).detach();
 
   auto screen = ScreenInteractive::Fullscreen();
   screen_ = &screen;
 
+  
+  
+  
   InputOption pass_opt;
-  pass_opt.password = true; 
+  pass_opt.password = true;  
   Component input_user = Input(&username_, "Username");
   Component input_pass = Input(&password_, "Password", pass_opt);
 
@@ -157,9 +184,13 @@ void TCPClient::run() {
     })) | center;
   });
 
+  
+  
+  
   Component modal_input = Input(&new_chat_name_, "Username...");
   Component modal_btn_ok = Button("Start Chat", [&] {
     if (!new_chat_name_.empty()) {
+      
       sendMessage(socket_fd_, "/check_user " + new_chat_name_);
     }
     show_modal_ = false;
@@ -185,13 +216,19 @@ void TCPClient::run() {
     })) | clear_under | center;
   });
 
+  
+  
+  
   std::string input_text;
   InputOption chat_opt;
   chat_opt.on_enter = [&] {
     if (input_text.empty()) return;
 
-    if (input_text == "/exit" || input_text == "/stop") {
-      sendMessage(socket_fd_, "[Server]: User " + username_ + " left the chat.");
+    std::string clean_text = trimBack(input_text);
+
+    if (clean_text.empty()) return;
+
+    if (clean_text == "/exit" || clean_text == "/stop") {
       stop();
       screen.Exit();
       return;
@@ -199,14 +236,14 @@ void TCPClient::run() {
 
     std::string current_tab = chat_tabs_[selected_tab_];
     if (current_tab == "Global") {
-      sendMessage(socket_fd_, "[" + username_ + "]: " + input_text);
+      sendMessage(socket_fd_, "[" + username_ + "]: " + clean_text);
     } else {
-      sendMessage(socket_fd_, "/msg " + current_tab + " " + input_text);
+      sendMessage(socket_fd_, "/msg " + current_tab + " " + clean_text);
     }
 
     if (current_tab == "Global") {
       std::lock_guard<std::mutex> lock(history_mutex_);
-      chat_histories_["Global"].push_back("[" + username_ + "]: " + input_text);
+      chat_histories_["Global"].push_back("[" + username_ + "]: " + clean_text);
     }
 
     scroll_offset_ = 0;
@@ -223,6 +260,7 @@ void TCPClient::run() {
   Component left_panel = Container::Vertical({ btn_new_chat, menu });
   Component chat_container = Container::Horizontal({ left_panel, input_field });
 
+  
   chat_container = CatchEvent(chat_container, [&](Event event) {
     if (event == Event::ArrowUp || event == Event::PageUp) {
       scroll_offset_ += (event == Event::PageUp) ? 10 : 1;
@@ -239,16 +277,20 @@ void TCPClient::run() {
   auto chat_renderer = Renderer(chat_container, [&] {
     Elements history_elements;
     std::string current_tab;
+
+    
     {
       std::lock_guard<std::mutex> lock(history_mutex_);
       current_tab = chat_tabs_[selected_tab_];
       const auto& msgs = chat_histories_[current_tab];
 
+      
       if (scroll_offset_ < 0) scroll_offset_ = 0;
       if (!msgs.empty() && scroll_offset_ >= (int)msgs.size()) {
         scroll_offset_ = msgs.size() - 1;
       }
 
+      
         for (int i = 0; i < (int)msgs.size(); ++i) {
         auto el = paragraph(msgs[i]); 
         if (i == (int)msgs.size() - 1 - scroll_offset_) el = el | focus;
@@ -258,6 +300,7 @@ void TCPClient::run() {
 
     auto history_box = vbox(std::move(history_elements)) | yframe | yflex;
 
+    
     return hbox({
       vbox({
         text(" MENU ") | bold | center,
@@ -276,11 +319,14 @@ void TCPClient::run() {
     });
   });
 
+  
   chat_renderer = Modal(chat_renderer, modal_renderer, &show_modal_);
 
+  
   auto root_container = Container::Tab({auth_renderer, chat_renderer}, &app_state_);
   auto root_renderer = Renderer(root_container, [&] { return root_container->Render(); });
 
+  
   screen.Loop(root_renderer);
   screen_ = nullptr;
 }

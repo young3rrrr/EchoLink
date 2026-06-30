@@ -1,3 +1,8 @@
+
+.git/
+.gitignore
+.gitattributes
+
 build/
 CMakeCache.txt
 CMakeFiles/
@@ -16,6 +21,10 @@ echolink_server
 
 .DS_Store
 Thumbs.db
+
+docker-compose.yml
+Dockerfile*
+installer.sh
 
 
 deploy/postgres/backup/*

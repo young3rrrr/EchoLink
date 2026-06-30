@@ -8,6 +8,7 @@
 
 class TCPServer {
 public:
+
   explicit TCPServer(int port);
 
   ~TCPServer();
@@ -19,6 +20,7 @@ public:
   void stop();
 
 private:
+
   void handleClient(int client_socket);
 
   void broadcastMessage(const std::string &message, int sender_socket);
@@ -35,14 +37,17 @@ private:
 
   void sendHistoryToClient(int client_socket, const std::string &username);
 
+  
   int port_;                        
   int server_fd_;                   
   sockaddr_in server_address_;      
   std::atomic<bool> is_running_{false}; 
 
+  
   std::vector<int> client_sockets_;      
   std::mutex clients_mutex_;             
   std::atomic<int> active_threads_{0};   
 
+  
   std::unordered_map<std::string, int> active_users_; 
 };
