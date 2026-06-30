@@ -125,3 +125,12 @@ inline bool receiveMessage(int socket, std::string& outMessage) {
     outMessage.assign(buffer.begin(), buffer.end());
     return true;
 }
+
+inline std::string trimBack(std::string str) {
+    while (!str.empty() && (str.back() == '\n' || str.back() == '\r' || 
+                            str.back() == ' '  || str.back() == '\t'  || 
+                            str.back() == '\v' || str.back() == '\f')) {
+        str.pop_back();
+    }
+    return str;
+}

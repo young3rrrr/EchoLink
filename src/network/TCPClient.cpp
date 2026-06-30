@@ -271,28 +271,26 @@ void TCPClient::run() {
   chat_opt.on_enter = [&] {
     if (input_text.empty()) return;
 
-    // Handle special exit commands
-    if (input_text == "/exit" || input_text == "/stop") {
-      sendMessage(socket_fd_, "[Server]: User " + username_ + " left the chat.");
+    std::string clean_text = trimBack(input_text);
+
+    if (clean_text.empty()) return;
+
+    if (clean_text == "/exit" || clean_text == "/stop") {
       stop();
       screen.Exit();
       return;
     }
 
-    // Send message to current chat tab
     std::string current_tab = chat_tabs_[selected_tab_];
     if (current_tab == "Global") {
-      // Send to global chat
-      sendMessage(socket_fd_, "[" + username_ + "]: " + input_text);
+      sendMessage(socket_fd_, "[" + username_ + "]: " + clean_text);
     } else {
-      // Send as private message
-      sendMessage(socket_fd_, "/msg " + current_tab + " " + input_text);
+      sendMessage(socket_fd_, "/msg " + current_tab + " " + clean_text);
     }
 
-    // Add message to local history for global chat only
     if (current_tab == "Global") {
       std::lock_guard<std::mutex> lock(history_mutex_);
-      chat_histories_["Global"].push_back("[" + username_ + "]: " + input_text);
+      chat_histories_["Global"].push_back("[" + username_ + "]: " + clean_text);
     }
 
     scroll_offset_ = 0;

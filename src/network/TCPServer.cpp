@@ -283,9 +283,7 @@ void TCPServer::handleClient(int client_socket) {
       content = received_msg.substr(colon_pos + 3);
 
       // Remove trailing whitespace and newline characters
-      while (!content.empty() && (content.back() == '\n' || content.back() == '\r' || content.back() == ' ')) {
-        content.pop_back();
-      }
+      content = trimBack(content);
     }
 
     // ===== AUTHENTICATION HANDLER: REGISTRATION =====
@@ -341,9 +339,7 @@ void TCPServer::handleClient(int client_socket) {
       target_user.erase(0, target_user.find_first_not_of(" \t"));
 
       // Remove trailing whitespace and control characters
-      while (!target_user.empty() && (target_user.back() == '\n' || target_user.back() == '\r' || target_user.back() == ' ')) {
-        target_user.pop_back();
-      }
+      target_user = trimBack(target_user);
 
       if (userExists(target_user)) {
         // User exists - send signal to create private chat tab
@@ -518,12 +514,9 @@ void TCPServer::sendHistoryToClient(int client_socket, const std::string &userna
     pqxx::result res = txn.exec("SELECT username, content FROM messages ORDER BY id ASC;");
     for (auto row : res) {
       std::string user = row["username"].c_str();
-      std::string text = row["content"].c_str();
 
       // Remove trailing whitespace and control characters
-      while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) {
-        text.pop_back();
-      }
+      std::string text = trimBack(row["content"].c_str());
 
       sendMessage(client_socket, "[" + user + "]: " + text);
     }
@@ -538,7 +531,7 @@ void TCPServer::sendHistoryToClient(int client_socket, const std::string &userna
     for (auto row : priv_res) {
       std::string sender = row["sender_username"].c_str();
       std::string receiver = row["receiver_username"].c_str();
-      std::string text = row["content"].c_str();
+      std::string text = trimBack(row["content"].c_str());
 
       // Determine target tab based on message direction
       std::string target_tab = (sender == username) ? receiver : sender;

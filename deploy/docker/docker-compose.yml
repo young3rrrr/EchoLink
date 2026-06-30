@@ -7,6 +7,7 @@ services:
       POSTGRES_DB: echolink_db
     volumes:
       - ../postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - pg_data:/var/lib/postgresql
     networks:
       - echo_net
 
@@ -41,6 +42,19 @@ services:
       - echolink
     networks:
       - echo_net
+
+  backup_db:
+    image: postgres:alpine
+    volumes:
+      - ../postgres/backup.sh:/backup.sh
+      - ../postgres/backup:/backup
+    depends_on:
+      - echolink_db
+    command: 
+    - sh -c "chmod +x /backup.sh && echo '0 2 * * * /backup.sh' > /var/spool/cron/crontabs/root && crond -f"
+
+volumes:
+  pg_data:
 
 networks:
   echo_net:
